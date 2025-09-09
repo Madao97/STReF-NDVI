@@ -1,0 +1,2 @@
+# ReNDVIval-RaST-Radar-driven-NDVI-Revival-via-Spatio-Temporal-modeling-
+ReNDVIval-RaST (Radar-driven NDVI Revival via Spatio-Temporal modeling) is a deep learning framework for reconstructing 10 m NDVI time series in cloud-prone regions. It fuses Sentinel-1 SAR with Sentinel-2 supervision, integrating CNN, temporal graph, Bi-LSTM, and Transformer attention for accurate and transferable vegetation monitoring.
