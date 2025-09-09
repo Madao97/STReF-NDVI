@@ -1,0 +1,33 @@
+# Core
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+tqdm>=4.66
+matplotlib>=3.8
+scikit-image>=0.22
+scikit-learn>=1.3
+numba>=0.58
+
+# Geospatial
+rasterio>=1.3.9
+geopandas>=0.14
+shapely>=2.0
+fiona>=1.9
+pyproj>=3.6
+affine>=2.4.0
+
+# Optional: GPU array accel for older scripts (<2022-)
+# cupy 取决于 CUDA 版本，请按需选择一个安装（或跳过）
+# cupy-cuda12x>=13.0 ; platform_system != "Darwin"
+# cupy-cuda11x>=12.0 ; platform_system != "Darwin"
+
+# ML / DL
+# 强烈建议按 PyTorch 官方指引安装（见 README）
+# torch>=2.1
+# torchvision>=0.16
+# PyTorch Geometric 同样建议按其官网命令安装（见 README）
+# torch-geometric>=2.5
+
+# GDAL
+# 建议用 conda-forge 安装（见 README）；若用 pip，需要与你系统的 GDAL 库匹配
+# GDAL>=3.4
