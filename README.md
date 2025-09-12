@@ -3,7 +3,7 @@ ReNDVIval-RaST (Radar-driven NDVI Revival via Spatio-Temporal modeling) is a dee
 <img width="1637" height="1632" alt="Figure 4" src="https://github.com/user-attachments/assets/0adf7a9a-a3c9-4663-99df-5597e480007e" />
 
 
-# ReNDVIval-RaST: End-to-end S1→NDVI Reconstruction Pipeline
+# ST-ClearNDVI: End-to-end S1→NDVI Reconstruction Pipeline
 
 This repository contains a reproducible pipeline to:
 1) preprocess Sentinel-2 & Sentinel-1 data,  
@@ -25,7 +25,7 @@ All scripts are CLI-friendly with English comments and generalized paths for Git
 - **05\_S2\_Data\_Availability\_Judgment.py** — Judge each S2 date’s usability by cloud ratio + rainfall (and optional WaterMask presence).  
 - **06\_S1&S2\_Data\_Matching.py** — Match S1 acquisition dates to “usable” S2 dates within ±N days.  
 - **07\_Dataset\_Construction.py** — Build training tensors (S1 features + smoothed NDVI + masks), with QA and temporal smoothing.  
-- **08\_ReNDVIval-RaST\_training.py** — Train the model (Tex-CNN + GCN + BiLSTM + Transformer).  
+- **08\_ST-ClearNDVI\_training.py** — Train the model (Tex-CNN + GCN + BiLSTM + Transformer).  
 - **09\_Predict&Reconstruct\_complete\_NDVI.py** — Full NDVI reconstruction using trained weights, optional AOI masking.  
 - **10\_Evaluation\_Dataset\_Construction.py** — Build validation coordinates from smoothed & clear NDVI.  
 - **11\_Evaluation.py** — Quantitative evaluation & density scatter plots (R²/RMSE/MAE) per date and yearly.
