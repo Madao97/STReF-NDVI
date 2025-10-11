@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-08_ST-ClearNDVI_training.py
+08_STReF-NDVI_training.py
 
 Train the ReNDVIval-RaST model to reconstruct NDVI from Sentinel-1 feature stacks.
 Architecture: Tex-CNN (local texture) + GCN (temporal edges) + Bi-LSTM + Transformer.
@@ -420,4 +420,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
