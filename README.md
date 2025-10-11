@@ -1,6 +1,7 @@
 # ST-ClearNDVI architecture
 ReNDVIval-RaST (Radar-driven NDVI Revival via Spatio-Temporal modeling) is a deep learning framework for reconstructing 10 m NDVI time series in cloud-prone regions. It fuses Sentinel-1 SAR with Sentinel-2 supervision, integrating CNN, temporal graph, Bi-LSTM, and Transformer attention for accurate and transferable vegetation monitoring.
-<img width="1637" height="1632" alt="Figure 4" src="https://github.com/user-attachments/assets/0adf7a9a-a3c9-4663-99df-5597e480007e" />
+<img width="1204" height="1714" alt="Figure 4" src="https://github.com/user-attachments/assets/574530fb-c1d8-4769-96ea-ee164c70ffd6" />
+
 
 
 # ST-ClearNDVI: End-to-end S1→NDVI Reconstruction Pipeline
