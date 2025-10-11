@@ -3,7 +3,7 @@
 """
 08_STReF-NDVI_training.py
 
-Train the ReNDVIval-RaST model to reconstruct NDVI from Sentinel-1 feature stacks.
+Train the STReF-NDVI model to reconstruct NDVI from Sentinel-1 feature stacks.
 Architecture: Tex-CNN (local texture) + GCN (temporal edges) + Bi-LSTM + Transformer.
 Mask-aware loss: clear pixels weighted higher than cloud/water pixels.
 
@@ -51,7 +51,7 @@ from tqdm import tqdm
 # ------------------------------ CLI ------------------------------ #
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train ReNDVIval-RaST (S1→NDVI) with mask-aware loss.")
+    p = argparse.ArgumentParser(description="Train STReF-NDVI (S1→NDVI) with mask-aware loss.")
     p.add_argument("--data-dir", required=True, help="Directory with fullyear_* and aux files.")
     p.add_argument("--out-dir", required=True, help="Directory to save models and logs.")
     p.add_argument("--channels", nargs="+", default=["vh","rvi","vv_div","vv_diff","log_ratio"],
@@ -420,5 +420,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
