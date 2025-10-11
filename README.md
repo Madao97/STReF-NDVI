@@ -1,10 +1,10 @@
-# ST-ClearNDVI architecture
-ReNDVIval-RaST (Radar-driven NDVI Revival via Spatio-Temporal modeling) is a deep learning framework for reconstructing 10 m NDVI time series in cloud-prone regions. It fuses Sentinel-1 SAR with Sentinel-2 supervision, integrating CNN, temporal graph, Bi-LSTM, and Transformer attention for accurate and transferable vegetation monitoring.
+# STReF-NDVI architecture
+STReF-NDVI is a Spatio-Temporal Reconstructs Framework for reconstructing 10 m NDVI time series in cloud-prone regions. It fuses Sentinel-1 SAR with Sentinel-2 supervision, integrating CNN, temporal graph, Bi-LSTM, and Transformer attention for accurate and transferable vegetation monitoring.
 <img width="1204" height="1714" alt="Figure 4" src="https://github.com/user-attachments/assets/574530fb-c1d8-4769-96ea-ee164c70ffd6" />
 
 
 
-# ST-ClearNDVI: End-to-end S1→NDVI Reconstruction Pipeline
+# STReF-NDVI: End-to-end S1→NDVI Reconstruction Pipeline
 
 This repository contains a reproducible pipeline to:
 1) preprocess Sentinel-2 & Sentinel-1 data,  
@@ -26,7 +26,7 @@ All scripts are CLI-friendly with English comments and generalized paths for Git
 - **05\_S2\_Data\_Availability\_Judgment.py** — Judge each S2 date’s usability by cloud ratio + rainfall (and optional WaterMask presence).  
 - **06\_S1&S2\_Data\_Matching.py** — Match S1 acquisition dates to “usable” S2 dates within ±N days.  
 - **07\_Dataset\_Construction.py** — Build training tensors (S1 features + smoothed NDVI + masks), with QA and temporal smoothing.  
-- **08\_ST-ClearNDVI\_training.py** — Train the model (Tex-CNN + GCN + BiLSTM + Transformer).  
+- **08\_STReF-NDVI\_training.py** — Train the model (Tex-CNN + GCN + BiLSTM + Transformer).  
 - **09\_Predict&Reconstruct\_complete\_NDVI.py** — Full NDVI reconstruction using trained weights, optional AOI masking.  
 - **10\_Evaluation\_Dataset\_Construction.py** — Build validation coordinates from smoothed & clear NDVI.  
 - **11\_Evaluation.py** — Quantitative evaluation & density scatter plots (R²/RMSE/MAE) per date and yearly.
