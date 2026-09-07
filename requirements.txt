@@ -16,18 +16,19 @@ fiona>=1.9
 pyproj>=3.6
 affine>=2.4.0
 
-# Optional: GPU array accel for older scripts (<2022-)
-# cupy 取决于 CUDA 版本，请按需选择一个安装（或跳过）
+# Optional: GPU array acceleration for older scripts (<2022)
+# CuPy installation depends on your CUDA version. Install the appropriate package if needed, or skip it.
 # cupy-cuda12x>=13.0 ; platform_system != "Darwin"
 # cupy-cuda11x>=12.0 ; platform_system != "Darwin"
 
 # ML / DL
-# 强烈建议按 PyTorch 官方指引安装（见 README）
+# We strongly recommend installing PyTorch following the official instructions (see README).
 # torch>=2.1
 # torchvision>=0.16
-# PyTorch Geometric 同样建议按其官网命令安装（见 README）
+# PyTorch Geometric should also be installed following the official installation guide (see README).
 # torch-geometric>=2.5
 
 # GDAL
-# 建议用 conda-forge 安装（见 README）；若用 pip，需要与你系统的 GDAL 库匹配
+# We recommend installing GDAL via conda-forge (see README).
+# If using pip, make sure the GDAL version is compatible with the GDAL libraries installed on your system.
 # GDAL>=3.4
