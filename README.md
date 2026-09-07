@@ -31,9 +31,9 @@ STReF-NDVI is a spatio-temporal SAR–optical fusion framework for reconstructin
 and quality-controlled Sentinel-2 NDVI supervision.
 
 This repository provides the core implementation of STReF-NDVI to:
-1) construct model-ready datasets from preprocessed Sentinel-1 features and Sentinel-2 NDVI observations,
-2) train the STReF-NDVI model,
-3) reconstruct continuous NDVI time series, and
+1) construct model-ready datasets from preprocessed Sentinel-1 features and Sentinel-2 NDVI observations.
+2) train the STReF-NDVI model.
+3) reconstruct continuous NDVI time series.
 4) quantitatively evaluate the reconstructed NDVI.
 
 The repository focuses on the core reconstruction framework and starts from
