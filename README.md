@@ -1,5 +1,6 @@
 # STReF-NDVI architecture
 STReF-NDVI is a Spatio-Temporal Reconstructs Framework for reconstructing 10 m NDVI time series in cloud-prone regions. It fuses Sentinel-1 SAR with Sentinel-2 supervision, integrating CNN, temporal graph, Bi-LSTM, and Transformer attention for accurate and transferable vegetation monitoring.
+https://kwnsfk27.r.eu-west-1.awstrack.me/L0/https:%2F%2Fdoi.org%2F10.1016%2Fj.inffus.2026.104760/1/010201a07a462917-ccaf7b5e-6616-4826-992e-b9f3681d2f86-000000/EvPKHRovuqQ1J60Q-Hn9GUJLYbc=473
 
 <img width="6470" height="5628" alt="Figure 4" src="https://github.com/user-attachments/assets/fd3901a2-e119-44be-900a-5ce4d64e346f" />
 
