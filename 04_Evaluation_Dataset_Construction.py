@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-10_Evaluation_Dataset_Construction.py
 
 Build a validation set of "smoothed & clear" NDVI pixels by:
   • Using S2_norm[..., 0] (smoothed, normalized NDVI in [0,1])
