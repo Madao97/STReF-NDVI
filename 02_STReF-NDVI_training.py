@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-08_STReF-NDVI_training.py
 
 Train the STReF-NDVI model to reconstruct NDVI from Sentinel-1 feature stacks.
 Architecture: Tex-CNN (local texture) + GCN (temporal edges) + Bi-LSTM + Transformer.
