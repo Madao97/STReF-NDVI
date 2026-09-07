@@ -1,6 +1,25 @@
 # STReF-NDVI architecture
-STReF-NDVI is a Spatio-Temporal Reconstructs Framework for reconstructing 10 m NDVI time series in cloud-prone regions. It fuses Sentinel-1 SAR with Sentinel-2 supervision, integrating CNN, temporal graph, Bi-LSTM, and Transformer attention for accurate and transferable vegetation monitoring.
-https://kwnsfk27.r.eu-west-1.awstrack.me/L0/https:%2F%2Fdoi.org%2F10.1016%2Fj.inffus.2026.104760/1/010201a07a462917-ccaf7b5e-6616-4826-992e-b9f3681d2f86-000000/EvPKHRovuqQ1J60Q-Hn9GUJLYbc=473
+# STReF-NDVI
+
+**Spatio-Temporal SAR–Optical Fusion Framework for Reconstructing NDVI Time Series under Persistent Cloud Cover**
+
+[![Paper](https://img.shields.io/badge/Paper-Information%20Fusion-blue)](https://doi.org/10.1016/j.inffus.2026.104760)
+[![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.inffus.2026.104760-blue)](https://doi.org/10.1016/j.inffus.2026.104760)
+
+STReF-NDVI is a spatio-temporal SAR–optical fusion framework designed to reconstruct
+10 m NDVI time series under persistent cloud cover. It exploits Sentinel-1 SAR
+observations together with sparse and irregular Sentinel-2 optical supervision,
+combining spatial texture encoding, temporal graph modeling, Bi-LSTM, and
+Transformer-based temporal attention to capture vegetation dynamics across prolonged
+optical observation gaps.
+
+## Publication
+
+**STReF-NDVI: A spatio-temporal SAR-optical fusion framework for reconstructing NDVI time series under persistent cloud cover**
+
+*Information Fusion*, 2026, Article 104760.
+
+**DOI:** https://doi.org/10.1016/j.inffus.2026.104760
 
 <img width="6470" height="5628" alt="Figure 4" src="https://github.com/user-attachments/assets/fd3901a2-e119-44be-900a-5ce4d64e346f" />
 
