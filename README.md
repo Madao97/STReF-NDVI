@@ -31,7 +31,7 @@ optical observation gaps.
 This repository contains a reproducible pipeline to:
 1) preprocess Sentinel-2 & Sentinel-1 data,  
 2) construct training/validation datasets,  
-3) train the ReNDVIval-RaST model, and  
+3) train the STReF-NDVI model, and  
 4) predict & evaluate reconstructed NDVI time series.
 
 All scripts are CLI-friendly with English comments and generalized paths for GitHub use.
