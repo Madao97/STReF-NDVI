@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-11_Evaluation.py
 
 Evaluate reconstructed NDVI using a validation set of clear pixels.
 Outputs:
