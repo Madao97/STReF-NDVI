@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-07_Dataset_Construction.py
 
 Build a year-long training dataset by pairing Sentinel-1 features with
 Sentinel-2 NDVI/Cloud/Water masks using a precomputed S1->S2 date mapping.
