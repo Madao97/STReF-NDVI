@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-09_Predict&Reconstruct_complete_NDVI.py
 
 Reconstruct (predict) full NDVI time series from trained ReNDVIval-RaST models.
 
