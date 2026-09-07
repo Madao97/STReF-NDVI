@@ -24,35 +24,70 @@ optical observation gaps.
 <img width="6470" height="5628" alt="Figure 4" src="https://github.com/user-attachments/assets/fd3901a2-e119-44be-900a-5ce4d64e346f" />
 
 
+# STReF-NDVI: Spatio-Temporal SAR–Optical Fusion for NDVI Reconstruction
 
+STReF-NDVI is a spatio-temporal SAR–optical fusion framework for reconstructing
+10 m NDVI time series under persistent cloud cover using Sentinel-1 SAR observations
+and quality-controlled Sentinel-2 NDVI supervision.
 
-# STReF-NDVI: End-to-end S1→NDVI Reconstruction Pipeline
+This repository provides the core implementation of STReF-NDVI to:
+1) construct model-ready datasets from preprocessed Sentinel-1 features and Sentinel-2 NDVI observations,
+2) train the STReF-NDVI model,
+3) reconstruct continuous NDVI time series, and
+4) quantitatively evaluate the reconstructed NDVI.
 
-This repository contains a reproducible pipeline to:
-1) preprocess Sentinel-2 & Sentinel-1 data,  
-2) construct training/validation datasets,  
-3) train the STReF-NDVI model, and  
-4) predict & evaluate reconstructed NDVI time series.
+The repository focuses on the core reconstruction framework and starts from
+preprocessed remote sensing data. Sensor-specific preprocessing and quality-control
+procedures follow the protocol described in the published paper.
 
 All scripts are CLI-friendly with English comments and generalized paths for GitHub use.
 ---
-
 ## Contents
 
-- **01\_S2\_DataPreparation\_2022+.py** — S2 L2A batch preprocessing (ESA 2022 Radiometric Offset aware, SCL + Otsu shadow enhancement).  
-- **01\_S2\_DataPreparation\_2022-.py** — S2 L2A preprocessing for pre-2022 products (with optional CuPy acceleration).  
-- **01\_generate\_water\_mask\_from\_scl.py** — Convert raw SCL-based water mask to binary 0/1.  
-- **02\_Climate.py** — Convert daily rainfall CSV to a binary “usable/disturbed” label.  
-- **03\_S1\_Resampling.py** — Resample S1 rasters to match a S2 reference grid.  
-- **04\_Clip.py** — Clip rasters by AOI vector boundary.  
-- **05\_S2\_Data\_Availability\_Judgment.py** — Judge each S2 date’s usability by cloud ratio + rainfall (and optional WaterMask presence).  
-- **06\_S1&S2\_Data\_Matching.py** — Match S1 acquisition dates to “usable” S2 dates within ±N days.  
-- **07\_Dataset\_Construction.py** — Build training tensors (S1 features + smoothed NDVI + masks), with QA and temporal smoothing.  
-- **08\_STReF-NDVI\_training.py** — Train the model (Tex-CNN + GCN + BiLSTM + Transformer).  
-- **09\_Predict&Reconstruct\_complete\_NDVI.py** — Full NDVI reconstruction using trained weights, optional AOI masking.  
-- **10\_Evaluation\_Dataset\_Construction.py** — Build validation coordinates from smoothed & clear NDVI.  
-- **11\_Evaluation.py** — Quantitative evaluation & density scatter plots (R²/RMSE/MAE) per date and yearly.
+- **01_Dataset_Construction.py** — Constructs STReF-NDVI datasets from
+  preprocessed Sentinel-1 features and quality-controlled Sentinel-2 NDVI
+  observations, including temporal refinement, validity masks, and dataset
+  organization.
 
+- **02_STReF-NDVI_Training.py** — Implements and trains the STReF-NDVI model,
+  integrating Tex-CNN, Time-GCN, BiLSTM, and Transformer-based temporal
+  modeling.
+
+- **03_NDVI_Reconstruction.py** — Performs NDVI prediction and continuous
+  time-series reconstruction using the trained STReF-NDVI model.
+
+- **04_Evaluation_Dataset_Construction.py** — Constructs independent evaluation
+  samples from quality-controlled optical NDVI observations.
+
+- **05_Evaluation.py** — Evaluates reconstructed NDVI using R², RMSE, and MAE
+  and generates quantitative evaluation plots.
+
+---
+
+## Data Preparation
+
+This repository focuses on the STReF-NDVI reconstruction framework rather than
+sensor-specific preprocessing utilities. Therefore, the released workflow starts
+from preprocessed Sentinel-1 features and quality-controlled Sentinel-2 NDVI
+observations.
+
+The input data should be prepared following the protocol described in the paper.
+In brief:
+
+1. Sentinel-2 L2A surface reflectance is used to derive NDVI.
+2. Cloud-, shadow-, and other contaminated optical observations are removed
+   through quality control.
+3. Rainfall-affected SAR observations are screened using precipitation
+   information.
+4. Sentinel-1 observations are spatially aligned with the Sentinel-2 10 m
+   reference grid.
+5. Sentinel-1 and valid Sentinel-2 observations are temporally matched according
+   to the matching strategy described in the paper.
+6. Quality-controlled optical NDVI observations are temporally refined before
+   being used as supervision.
+
+Please refer to the published paper for the complete preprocessing criteria,
+parameter settings, and experimental protocol.
 ---
 
 ## Environment & Installation
