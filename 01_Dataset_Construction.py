@@ -1,13 +1,35 @@
 # -*- coding: utf-8 -*-
-"""Build S1-centric STReF-NDVI arrays from aligned, preprocessed GeoTIFFs.
+"""
+Build an S1-centric dataset for STReF-NDVI.
 
-Usage:
-    python 01_Dataset_Construction.py --data-root ./example_data --output-dir ./dataset
+The temporal axis follows the Sentinel-1 dates in the matching table.
+Missing Sentinel-2 labels do not remove Sentinel-1 dates.
 
-S1: (VV, VH); default input unit dB. S2: (NDVI, cloud), cloud=0 clear.
-Water: one band, 0 non-water. All rasters must share a geographic grid.
-All S1 dates are retained, including dates without optical supervision.
-See README.md for the data contract, normalization scope and compatibility notes.
+Inputs:
+    S1/S1_YYYYMMDD.tif
+        Two bands: VV and VH, in dB by default.
+
+    S2_NDVI_CloudMask/NDVI_CloudMask_YYYYMMDD_WGS84.tif
+        Two bands: NDVI and cloud mask.
+
+    WaterMask/WaterMask_YYYYMMDD_WGS84.tif
+        One band: water mask.
+
+    Matching/S1_S2_Label_Mapping.csv
+        Sentinel-1 to Sentinel-2 label mapping.
+
+Outputs:
+    S1.npy              (T, 5, H, W)
+    S2.npy              (T, H, W, 3): NDVI, cloud, water
+    target_mask.npy     (T, H, W)
+    S1_valid.npy        (T, H, W)
+    good_pixel.npy      (H, W)
+    dates.csv
+    metadata.json
+    normalization.pkl
+
+Input rasters must already be spatially aligned.
+Cloud and water masks use zero for clear and non-water pixels, respectively.
 """
 from __future__ import annotations
 
