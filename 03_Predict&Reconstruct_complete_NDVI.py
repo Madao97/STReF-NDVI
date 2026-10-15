@@ -81,7 +81,8 @@ def parse_args():
     p.add_argument("--model",    default=MODEL)
     p.add_argument("--out-dir",  default=OUT_DIR)
     p.add_argument("--s2-tif",   default=S2_TIF,
-                   help="Any cropped S2 GeoTIFF for CRS / transform (optional).")
+                   help="Optional reference GeoTIFF sharing the exact spatial "
+                        "grid of the input arrays; used for CRS and transform.")
     p.add_argument("--channels", nargs="+", default=None,
                    help="Override combo, e.g. --channels vh vv_diff")
     p.add_argument("--batch-size", type=int, default=256)
@@ -106,7 +107,7 @@ def build_batch_edge_index(B, T, device):
 
 
 class HybridNDVIModel(nn.Module):
-    """Must match exactly the architecture used in 07_Train_STReF_NDVI_Mini.py."""
+    """Architecture matching the STReF-NDVI training implementation."""
 
     def __init__(self, seq_ch, tex_ch, seq_len, tex_dim, patch):
         super().__init__()
