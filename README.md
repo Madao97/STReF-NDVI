@@ -69,22 +69,20 @@ Please refer to the published paper for the complete preprocessing criteria, par
 ---
 ## Example Results
 
-### Spatial reconstruction
+### Spatial NDVI reconstruction
 
-The animation shows a fixed land-cover map, matched Sentinel-2 true-color imagery, cloud-masked observed NDVI, and reconstructed NDVI over a demonstration area. The observed and reconstructed NDVI panels use the same color scale. Actual acquisition dates are displayed for the matched optical imagery.
+The animation compares Sentinel-2 true-color imagery, cloud-masked NDVI observations, and reconstructed NDVI time series over a demonstration area. A fixed land-cover map provides spatial context. Observed and reconstructed NDVI share the same color scale, and acquisition dates are displayed to identify temporal differences.
 
+![Spatial NDVI reconstruction](./spatial_reconstruction.gif)
 
+### Mean NDVI over vegetation-related land-cover classes
 
+The animation compares mean reconstructed NDVI with available Sentinel-2 observations across other vegetation, cropland, and herbaceous wetland. The reconstructed curve represents eligible pixels across these classes. Observation points represent valid Sentinel-2 pixels at each accepted date, so their spatial coverage may vary over time.
 
+![Mean NDVI over vegetation-related land-cover classes](./vegetation_mean_ndvi.gif)
 
-### Vegetation-related NDVI time series
+These examples illustrate spatial reconstruction and temporal variation in the demonstration area. Quantitative performance is reported separately in the paper.
 
-The animation shows mean reconstructed NDVI over eligible pixels in vegetation-related land-cover classes, including other vegetation, cropland, and herbaceous wetland in this demonstration area. Sentinel-2 points represent the mean of valid observed pixels at each accepted date, whose spatial coverage may vary over time.
-
-<img width="1440" height="720" alt="vegetation_mean_ndvi" src="https://github.com/user-attachments/assets/867e9adc-0912-44ef-adb0-301e9664f879" />
-
-
-These animations illustrate reconstruction behavior in a demonstration area. They do not replace the quantitative evaluation reported in the paper.
 ---
 ## Environment & Installation
 
