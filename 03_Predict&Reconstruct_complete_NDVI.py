@@ -1,287 +1,412 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
+Reconstruct NDVI time series using a trained STReF-NDVI model.
 
-Reconstruct (predict) full NDVI time series from trained ReNDVIval-RaST models.
+Required inputs:
+    S1.npy            (T, 5, H, W): normalized Sentinel-1 features
+    S2.npy            (T, H, W, 3): NDVI, cloud mask, water mask
+    target_mask.npy   (T, H, W): optical supervision validity
+    S1_valid.npy      (T, H, W): Sentinel-1 input validity
+    good_pixel.npy    (H, W): pixels selected for reconstruction
+    metadata.json
+    Trained model checkpoint (.pth)
 
-Inputs (produced by 07_Dataset_Construction.py):
-  fullyear_S1.npy : (T, 5, H, W)  channels = ["vh","rvi","vv_div","vv_diff","log_ratio"]
-  fullyear_S2.npy : (T, H, W, 3)  [NDVI_norm, CloudMask, WaterMask]
-  normalization_params.pkl : {"dates":[YYYYMMDD,...], "S2":{"ndvi":{"min":..,"max":..}}}
-  geo_info.pkl : {"transform": tuple(...), "crs": "EPSG:XXXX" or WKT}
+The model architecture must match the training implementation.
+Feature channels are inferred from the checkpoint filename unless
+explicitly supplied with --channels.
 
-Outputs (in --out-dir):
-  NDVI_Predict_<DATE>.tif
-  compare/compare_<DATE>.png
+Predictions are generated for good_pixel locations at all time steps.
+Other locations remain NaN. The inference attention mask uses S1_valid.
 
-Example:
-  python 09_Predict&Reconstruct_complete_NDVI.py \
-    --data-dir ./fullyear_2024_HS \
-    --model ./fullyear_2024_HS/models/vh__vv_div__vv_diff.pth \
-    --out-dir ./fullyear_2024_HS/predict_vh__vv_div__vv_diff \
-    --aoi ./AOI/Hulu_Selangor.shp \
-    --batch-size 512 --patch 3 --tex-dim 32 --amp
+Outputs:
+    ndvi_pred.npy
+    ndvi_true.npy
+    NDVI_Predict_<DATE>.tif, when reference georeferencing is available
+    compare/compare_<DATE>.png
+    per_frame_metrics.csv
+    reconstruction_summary.json
+
+Metrics use locations where target_mask is True and both observations
+and predictions are finite. They are reconstruction diagnostics and
+do not automatically represent independent held-out test performance.
+
 """
 
 import os
-import re
+import json
 import argparse
-import pickle
+from contextlib import nullcontext
+from datetime import datetime
+from math import pi
+
 import numpy as np
 import torch
 import torch.nn as nn
 
-# AMP (PT2.x: torch.amp; PT<2.0: torch.cuda.amp)
-try:
-    from torch.amp import autocast
-    _AMP_DEVICE_ARG = "device_type"
-except Exception:
-    from torch.cuda.amp import autocast
-    _AMP_DEVICE_ARG = "enabled"  # unused; we guard with args.amp
-
 from torch_geometric.nn import GCNConv
 from tqdm import tqdm
-import rasterio
-from rasterio.crs import CRS
-from affine import Affine
-import geopandas as gpd
 import matplotlib.pyplot as plt
-from rasterio.features import geometry_mask
 
 
-ALL_CHANNELS = ["vh","rvi","vv_div","vv_diff","log_ratio"]
+# =============================================================
+# DEFAULT PATHS
+# Override these paths using command-line arguments.
+# =============================================================
+DATA_DIR = os.path.join("data", "Dataset")
+MODEL = os.path.join(DATA_DIR, "models", "vh__vv_diff.pth")
+OUT_DIR = os.path.join("outputs", "Reconstruction")
+S2_TIF = os.path.join("data", "reference.tif")
+
+ALL_CHANNELS = ["vh", "rvi", "vv_div", "vv_diff", "log_ratio"]
 EPS = 1e-6
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Predict full NDVI time series from a trained model.")
-    p.add_argument("--data-dir", required=True, help="Directory containing fullyear_* and aux pickles.")
-    p.add_argument("--model", required=True, help="Path to model .pth (e.g., vh__vv_div__vv_diff.pth).")
-    p.add_argument("--out-dir", required=True, help="Output directory.")
-    p.add_argument("--aoi", default=None, help="Optional AOI vector (SHP/GeoJSON/GPKG).")
+# ------------------ AMP compatibility ------------------ #
+def make_autocast(enabled, device_type):
+    if not enabled:
+        return nullcontext()
+    try:
+        from torch.amp import autocast as ac2
+        return ac2(device_type=device_type)
+    except Exception:
+        from torch.cuda.amp import autocast as ac1
+        return ac1(enabled=True)
+
+
+# ------------------------------ CLI ------------------------------ #
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Reconstruct NDVI from a trained STReF-NDVI model.")
+    p.add_argument("--data-dir", default=DATA_DIR)
+    p.add_argument("--model",    default=MODEL)
+    p.add_argument("--out-dir",  default=OUT_DIR)
+    p.add_argument("--s2-tif",   default=S2_TIF,
+                   help="Any cropped S2 GeoTIFF for CRS / transform (optional).")
     p.add_argument("--channels", nargs="+", default=None,
-                   help="Override channel combo (subset of vh rvi vv_div vv_diff log_ratio).")
-    p.add_argument("--batch-size", type=int, default=512)
-    p.add_argument("--patch", type=int, default=3)
-    p.add_argument("--tex-dim", type=int, default=32)
-    p.add_argument("--amp", action="store_true", help="Enable mixed precision for inference.")
-    p.add_argument("--gpu", type=int, default=None, help="CUDA device index (default: auto).")
+                   help="Override combo, e.g. --channels vh vv_diff")
+    p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--patch",      type=int, default=3)
+    p.add_argument("--tex-dim",    type=int, default=32)
+    p.add_argument("--amp", action="store_true")
+    p.add_argument("--gpu", type=int, default=None)
+    p.add_argument("--no-tif", action="store_true",
+                   help="skip GeoTIFF output (only npy + PNG)")
     return p.parse_args()
 
 
+# ------------------------------- Model ------------------------------- #
+
+def build_batch_edge_index(B, T, device):
+    src = torch.arange(0, T - 1, dtype=torch.long, device=device)
+    tgt = src + 1
+    base = torch.stack([torch.cat([src, tgt]), torch.cat([tgt, src])], dim=0)
+    offsets = torch.arange(B, dtype=torch.long, device=device)\
+                   .repeat_interleave(2 * (T - 1)) * T
+    return base.repeat(1, B) + offsets.unsqueeze(0)
+
+
 class HybridNDVIModel(nn.Module):
-    """Tex-CNN → GCN (temporal chain) → Bi-LSTM → Transformer → Linear head."""
-    def __init__(self, seq_ch: int, tex_ch: int, seq_len: int, tex_dim: int):
+    """Must match exactly the architecture used in 07_Train_STReF_NDVI_Mini.py."""
+
+    def __init__(self, seq_ch, tex_ch, seq_len, tex_dim, patch):
         super().__init__()
         self.tex = nn.Sequential(
-            nn.Conv2d(tex_ch, 32, 3, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(32, tex_dim, 3, padding=1), nn.AdaptiveAvgPool2d(1)
+            nn.Conv2d(tex_ch, 32, kernel_size=3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(32, tex_dim, kernel_size=3, padding=1),
+            nn.AdaptiveAvgPool2d(1)
         )
-        feat_dim = seq_ch * 2 + tex_dim  # concat(seq, mean, tex)
-        self.conv1d = nn.Conv1d(feat_dim, 64, 3, padding=1)
+        feat_dim = seq_ch * 2 + tex_dim
+        self.conv1d = nn.Conv1d(feat_dim, 64, kernel_size=3, padding=1)
         self.gcn1 = GCNConv(64, 64)
         self.gcn2 = GCNConv(64, 64)
-        self.lstm = nn.LSTM(64, 64, num_layers=3, bidirectional=True, batch_first=True)
-        enc = nn.TransformerEncoderLayer(d_model=128, nhead=4, dim_feedforward=256,
-                                         dropout=0.1, batch_first=True)
+        self.lstm = nn.LSTM(64, 64, num_layers=3,
+                            bidirectional=True, batch_first=True)
+        enc = nn.TransformerEncoderLayer(
+            d_model=128, nhead=4, dim_feedforward=256,
+            dropout=0.1, batch_first=True
+        )
         self.transformer = nn.TransformerEncoder(enc, num_layers=4)
         self.out = nn.Linear(128, 1)
+        self._edge_cache = {}
 
-        # bidirectional chain edges for temporal graph (shared across batch)
-        src = torch.arange(seq_len - 1, dtype=torch.long)
-        tgt = src + 1
-        edge = torch.cat([torch.stack([src, tgt]), torch.stack([tgt, src])], dim=1)
-        self.register_buffer("edge_index", edge)
+    def _get_edge_index(self, B, T, device):
+        key = (B, T, str(device))
+        if key not in self._edge_cache:
+            self._edge_cache[key] = build_batch_edge_index(B, T, device)
+        return self._edge_cache[key]
 
     def forward(self, seq, mean, tex, mask):
-        # seq: (B,T,seq_ch); mean: (B,T,seq_ch); tex: (B,T,tex_ch,P,P); mask: (B,T)
         B, T, Ctex, P, _ = tex.shape
-        tf = self.tex(tex.reshape(B * T, Ctex, P, P)).view(B, T, -1)   # (B,T,tex_dim)
-        x = torch.cat([seq, mean, tf], dim=-1)                         # (B,T,feat_dim)
-        x = self.conv1d(x.permute(0, 2, 1)).permute(0, 2, 1)           # (B,T,64)
+        tf = self.tex(tex.reshape(B * T, Ctex, P, P)).view(B, T, -1)
+        x = torch.cat([seq, mean, tf], dim=-1)
+        x = self.conv1d(x.permute(0, 2, 1)).permute(0, 2, 1)
 
+        edge_index = self._get_edge_index(B, T, x.device)
         flat = x.reshape(-1, 64)
-        g1 = torch.relu(self.gcn1(flat, self.edge_index))
-        g2 = self.gcn2(g1, self.edge_index)
-        x = g2.view(B, T, 64)
+        g1 = torch.relu(self.gcn1(flat, edge_index))
+        g2 = self.gcn2(g1, edge_index)
+        x = g2.reshape(B, T, 64)
 
-        x, _ = self.lstm(x)                                            # (B,T,128)
-        x = self.transformer(x, src_key_padding_mask=~mask)            # pad True → ignored
-        return self.out(x).squeeze(-1)                                  # (B,T)
+        x, _ = self.lstm(x)
+        x = self.transformer(x, src_key_padding_mask=~mask)
+        return self.out(x).squeeze(-1)
 
 
-def parse_channels_from_model_path(model_path: str) -> list[str]:
+def parse_channels_from_model_path(model_path):
     name = os.path.splitext(os.path.basename(model_path))[0]
-    # accept tokens separated by "__"
     tokens = name.split("__")
-    # filter to known channel names
-    chans = [t for t in tokens if t in ALL_CHANNELS]
-    return chans
+    return [t for t in tokens if t in ALL_CHANNELS]
 
+
+# ------------------------------ Main ------------------------------ #
 
 def main():
     args = parse_args()
 
-    # Device
     if args.gpu is not None and torch.cuda.is_available():
         device = torch.device(f"cuda:{args.gpu}")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] device = {device}")
+
     os.makedirs(args.out_dir, exist_ok=True)
     os.makedirs(os.path.join(args.out_dir, "compare"), exist_ok=True)
 
-    # Load arrays and metadata
-    S1 = np.load(os.path.join(args.data_dir, "fullyear_S1.npy"))   # (T,5,H,W)
-    S2 = np.load(os.path.join(args.data_dir, "fullyear_S2.npy"))   # (T,H,W,3)
-    with open(os.path.join(args.data_dir, "normalization_params.pkl"), "rb") as f:
-        norm = pickle.load(f)
-    with open(os.path.join(args.data_dir, "geo_info.pkl"), "rb") as f:
-        geo = pickle.load(f)
+    # -------- load arrays --------
+    S1 = np.load(os.path.join(args.data_dir, "S1.npy"))
+    S2 = np.load(os.path.join(args.data_dir, "S2.npy"))
+    target_mask = np.load(os.path.join(args.data_dir, "target_mask.npy")).astype(bool)
+    S1_valid = np.load(os.path.join(args.data_dir, "S1_valid.npy")).astype(bool)
+    good_pixel = np.load(os.path.join(args.data_dir, "good_pixel.npy")).astype(bool)
 
-    dates = norm["dates"]
+    with open(os.path.join(args.data_dir, "metadata.json"), "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    dates = meta["dates_s1"]
+    ndvi_min = float(meta.get("ndvi_min", -0.2))
+    ndvi_max = float(meta.get("ndvi_max", 1.0))
+    ndvi_range = ndvi_max - ndvi_min
+
     T, C, H, W = S1.shape
-    ndvi_n = S2[..., 0].astype(np.float32)
-    cloud  = S2[..., 1].astype(bool)
-    water  = S2[..., 2].astype(bool)
-    valid_all = (~cloud) & (~water)
+    print(f"[INFO] Loaded: T={T}, C={C}, H={H}, W={W}")
+    print(f"[INFO] NDVI range: [{ndvi_min}, {ndvi_max}]")
 
-    nd_min = float(norm["S2"]["ndvi"]["min"])
-    nd_max = float(norm["S2"]["ndvi"]["max"])
-
-    # Rebuild CRS/transform for rasterio
-    crs = CRS.from_string(geo["crs"]) if not isinstance(geo["crs"], CRS) else geo["crs"]
-    transform = Affine(*geo["transform"]) if not isinstance(geo["transform"], Affine) else geo["transform"]
-
-    # DOY features
-    doys = np.array([int(d[4:]) for d in dates], dtype=np.int32)
-    sin_doy = np.sin(2 * np.pi * doys / 365).astype(np.float32)
-    cos_doy = np.cos(2 * np.pi * doys / 365).astype(np.float32)
-
-    # Channel selection
+    # -------- channels --------
     if args.channels:
         for c in args.channels:
             if c not in ALL_CHANNELS:
-                raise ValueError(f"Unknown channel: {c}")
+                raise ValueError(f"unknown channel: {c}")
         channels = list(args.channels)
     else:
-        parsed = parse_channels_from_model_path(args.model)
-        if not parsed:
-            raise ValueError("Cannot infer channels from model name. Use --channels to specify.")
-        channels = parsed
+        channels = parse_channels_from_model_path(args.model)
+        if not channels:
+            raise ValueError(
+                "cannot infer channels from model path; use --channels"
+            )
     ch_ids = [ALL_CHANNELS.index(c) for c in channels]
     seq_ch = len(ch_ids) + 2
     tex_ch = len(ch_ids)
+    print(f"[INFO] channels = {channels}  ch_ids = {ch_ids}")
 
-    # Model
-    model = HybridNDVIModel(seq_ch, tex_ch, T, args.tex_dim).to(device)
+    # -------- model --------
+    model = HybridNDVIModel(seq_ch, tex_ch, T, args.tex_dim, args.patch).to(device)
     sd = torch.load(args.model, map_location=device)
     model.load_state_dict(sd)
     model.eval()
+    print(f"[INFO] Model loaded: {os.path.basename(args.model)}")
 
-    # Pad S1 once for texture patches
+    # -------- pad S1 --------
     pad = max(0, args.patch // 2)
     S1_pad = np.pad(S1, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="reflect")
 
-    # Optional AOI mask in raster CRS
-    roi_mask = np.ones((H, W), dtype=bool)  # True=inside/keep
-    if args.aoi:
-        gdf = gpd.read_file(args.aoi)
-        if gdf.empty:
-            raise ValueError("AOI has no features.")
-        try:
-            gdf = gdf.to_crs(crs)
-        except Exception:
-            # if geo["crs"] is string EPSG
-            gdf = gdf.set_crs(gdf.crs or crs).to_crs(crs)
-        geoms = [geom.__geo_interface__ for geom in gdf.geometry]
-        roi_mask = ~geometry_mask(geoms, invert=True, transform=transform, out_shape=(H, W))  # True inside
+    # -------- DOY --------
+    doys = np.array(
+        [datetime.strptime(str(d), "%Y%m%d").timetuple().tm_yday for d in dates],
+        dtype=np.int32,
+    )
+    sin_doy = np.sin(2 * pi * doys / 365.0).astype(np.float32)
+    cos_doy = np.cos(2 * pi * doys / 365.0).astype(np.float32)
+    extras = np.stack([sin_doy, cos_doy], axis=1).astype(np.float32)
 
-        # We want True inside AOI; geometry_mask with invert=True returns mask for features,
-        # but we inverted again above to ensure roi_mask True=inside.
-        roi_mask = ~roi_mask
+    # -------- pixels to predict --------
+    coords = np.argwhere(good_pixel)
+    print(f"[INFO] Predicting {len(coords):,} good pixels ...")
 
-    # Build list of pixel coords that have at least one valid time and are inside AOI
-    coords = [(r, c) for r in range(H) for c in range(W) if roi_mask[r, c] and valid_all[:, r, c].any()]
-    pred_ndvi = np.full((T, H, W), np.nan, dtype=np.float32)
+    pred_n = np.full((T, H, W), np.nan, dtype=np.float32)
 
-    # Batched inference
+    # -------- batched inference --------
     with torch.no_grad():
         for i in tqdm(range(0, len(coords), args.batch_size), desc="Predict"):
             batch = coords[i:i + args.batch_size]
+
             S_batch, M_batch, P_batch, MK_batch = [], [], [], []
-
-            extras = np.stack([sin_doy, cos_doy], axis=1)  # (T,2)
             for r, c in batch:
-                seq = S1[:, ch_ids, r, c].astype(np.float32)                  # (T, Csel)
-                seq = np.concatenate([seq, extras], axis=1)                   # (T, Csel+2)
+                seq = S1[:, ch_ids, r, c].astype(np.float32)
+                seq = np.concatenate([seq, extras], axis=1)
 
-                pat = S1_pad[:, ch_ids, r:r + args.patch, c:c + args.patch].astype(np.float32)  # (T,Csel,P,P)
-                mean = pat.mean(axis=(2, 3)).astype(np.float32)               # (T, Csel)
-                mean = np.concatenate([mean, extras], axis=1)                 # (T, Csel+2)
+                pat = S1_pad[:, ch_ids, r:r + args.patch, c:c + args.patch].astype(np.float32)
+                mean = pat.mean(axis=(2, 3)).astype(np.float32)
+                mean = np.concatenate([mean, extras], axis=1)
 
-                mask = valid_all[:, r, c]                                     # (T,)
+                mask = S1_valid[:, r, c]
 
                 S_batch.append(seq)
                 M_batch.append(mean)
                 P_batch.append(pat)
                 MK_batch.append(mask)
 
-            S_t  = torch.from_numpy(np.stack(S_batch)).to(device)
-            M_t  = torch.from_numpy(np.stack(M_batch)).to(device)
-            P_t  = torch.from_numpy(np.stack(P_batch)).to(device)
-            MK_t = torch.from_numpy(np.stack(MK_batch)).to(device)
+            S_t = torch.from_numpy(np.stack(S_batch)).to(device, non_blocking=True)
+            M_t = torch.from_numpy(np.stack(M_batch)).to(device, non_blocking=True)
+            P_t = torch.from_numpy(np.stack(P_batch)).to(device, non_blocking=True)
+            MK_t = torch.from_numpy(np.stack(MK_batch)).to(device, non_blocking=True)
 
-            autocast_kwargs = {_AMP_DEVICE_ARG: device.type} if args.amp else {}
-            with autocast(**autocast_kwargs) if args.amp else torch.no_grad():
-                PR = model(S_t, M_t, P_t, MK_t).cpu().numpy()  # (B,T)
+            with make_autocast(args.amp, device.type):
+                PR = model(S_t, M_t, P_t, MK_t).cpu().numpy()
 
             for j, (r, c) in enumerate(batch):
-                pred_ndvi[:, r, c] = PR[j]
+                pred_n[:, r, c] = PR[j]
 
-    # Write per-date GeoTIFF + comparison PNG
+    # -------- de-normalize --------
+    pred_raw = pred_n * ndvi_range + ndvi_min
+
+    # -------- true NDVI --------
+    ndvi_raw = S2[..., 0].astype(np.float32)
+    true_raw = np.where(target_mask, ndvi_raw, np.nan).astype(np.float32)
+
+    # -------- save npy --------
+    np.save(os.path.join(args.out_dir, "ndvi_pred.npy"), pred_raw.astype(np.float32))
+    np.save(os.path.join(args.out_dir, "ndvi_true.npy"), true_raw.astype(np.float32))
+    print(f"[INFO] Saved ndvi_pred.npy / ndvi_true.npy")
+
+    # -------- global metrics --------
+    from sklearn.metrics import r2_score
+    mask_all = target_mask & np.isfinite(true_raw) & np.isfinite(pred_raw)
+    if mask_all.any():
+        yt = true_raw[mask_all]
+        yp = pred_raw[mask_all]
+        r2 = float(r2_score(yt, yp))
+        rmse = float(np.sqrt(np.mean((yt - yp) ** 2)))
+        mae = float(np.mean(np.abs(yt - yp)))
+    else:
+        r2, rmse, mae = -1.0, float("inf"), float("inf")
+
+    print(f"[INFO] Reconstruction metrics (target_mask only):")
+    print(f"        R2   = {r2:.4f}")
+    print(f"        RMSE = {rmse:.4f}")
+    print(f"        MAE  = {mae:.4f}")
+
+    # -------- geo info --------
+    geo_ok = False
+    crs = None
+    transform = None
+    if args.s2_tif and os.path.exists(args.s2_tif) and not args.no_tif:
+        try:
+            import rasterio
+            with rasterio.open(args.s2_tif) as src:
+                crs = src.crs
+                transform = src.transform
+                height, width = src.height, src.width
+            if (height, width) != (H, W):
+                print(f"[WARN] s2-tif size ({height},{width}) != npy ({H},{W}); TIF output skipped")
+            else:
+                geo_ok = True
+                print(f"[INFO] Geo info from {os.path.basename(args.s2_tif)}: CRS={crs}")
+        except Exception as e:
+            print(f"[WARN] cannot read s2-tif: {e}")
+
+    # -------- per-date outputs --------
+    print("\n[INFO] Writing per-date outputs ...")
+    if np.isfinite(true_raw).any():
+        vmin_plot = float(np.nanmin(true_raw))
+        vmax_plot = float(np.nanmax(true_raw))
+    else:
+        vmin_plot, vmax_plot = ndvi_min, ndvi_max
+
     for t, d in enumerate(dates):
-        pred = pred_ndvi[t] * (nd_max - nd_min) + nd_min
-        true = ndvi_n[t]   * (nd_max - nd_min) + nd_min
+        pred_t = pred_raw[t]
+        true_t = true_raw[t]
 
-        # outside AOI set to NaN
-        pred_vis = pred.copy()
-        pred_vis[~roi_mask] = np.nan
+        if geo_ok:
+            import rasterio
+            out_tif = os.path.join(args.out_dir, f"NDVI_Predict_{d}.tif")
+            meta_tif = {
+                "driver": "GTiff",
+                "height": H,
+                "width": W,
+                "count": 1,
+                "dtype": "float32",
+                "crs": crs,
+                "transform": transform,
+                "nodata": np.nan,
+            }
+            with rasterio.open(out_tif, "w", **meta_tif) as dst:
+                dst.write(pred_t.astype(np.float32), 1)
 
-        # true-visible only where clear & inside AOI
-        true_vis = true.copy()
-        true_vis[~(roi_mask & ~cloud[t] & ~water[t])] = np.nan
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
 
-        # GeoTIFF
-        out_tif = os.path.join(args.out_dir, f"NDVI_Predict_{d}.tif")
-        meta = {
-            "driver": "GTiff",
-            "height": H,
-            "width": W,
-            "count": 1,
-            "dtype": "float32",
-            "crs": crs,
-            "transform": transform,
-            "nodata": np.nan,
-        }
-        with rasterio.open(out_tif, "w", **meta) as dst:
-            dst.write(pred_vis.astype(np.float32), 1)
+        axes[0].imshow(true_t, cmap="YlGn", vmin=vmin_plot, vmax=vmax_plot)
+        n_true = int(np.isfinite(true_t).sum())
+        axes[0].set_title(f"Observed NDVI ({n_true:,} px)")
+        axes[0].axis("off")
 
-        # Compare PNG
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6), sharex=True, sharey=True)
-        im0 = axes[0].imshow(true_vis, cmap="YlGn", vmin=nd_min, vmax=nd_max)
-        axes[0].set_title("True NDVI"); axes[0].axis("off")
-        im1 = axes[1].imshow(pred_vis, cmap="YlGn", vmin=nd_min, vmax=nd_max)
-        axes[1].set_title("Pred NDVI"); axes[1].axis("off")
+        axes[1].imshow(pred_t, cmap="YlGn", vmin=vmin_plot, vmax=vmax_plot)
+        axes[1].set_title("Predicted NDVI")
+        axes[1].axis("off")
 
-        cax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-        fig.colorbar(im1, cax=cax, label="NDVI")
+        cbar = fig.colorbar(axes[1].images[0], ax=axes, fraction=0.030, pad=0.02)
+        cbar.set_label("NDVI")
 
-        fig.suptitle(d, fontsize=14)
-        fig.subplots_adjust(left=0.05, right=0.90, top=0.88, bottom=0.05)
-        fig.savefig(os.path.join(args.out_dir, "compare", f"compare_{d}.png"), dpi=300)
+        fig.suptitle(f"{d}", fontsize=13)
+        fig.tight_layout()
+        fig.savefig(os.path.join(args.out_dir, "compare", f"compare_{d}.png"), dpi=150)
         plt.close(fig)
 
-    print(f"[INFO] NDVI reconstruction complete. Saved to: {args.out_dir}")
+    # -------- per-frame metrics --------
+    frame_metrics = []
+    for t, d in enumerate(dates):
+        m = target_mask[t] & np.isfinite(true_raw[t]) & np.isfinite(pred_raw[t])
+        if m.any() and m.sum() > 1:
+            yt = true_raw[t][m]
+            yp = pred_raw[t][m]
+            frame_metrics.append({
+                "date": d,
+                "n_pixels": int(m.sum()),
+                "r2": float(r2_score(yt, yp)),
+                "rmse": float(np.sqrt(np.mean((yt - yp) ** 2))),
+                "mae": float(np.mean(np.abs(yt - yp))),
+                "true_mean": float(yt.mean()),
+                "pred_mean": float(yp.mean()),
+            })
+        else:
+            frame_metrics.append({
+                "date": d,
+                "n_pixels": int(m.sum()),
+                "r2": None, "rmse": None, "mae": None,
+                "true_mean": None, "pred_mean": None,
+            })
+
+    import pandas as pd
+    pd.DataFrame(frame_metrics).to_csv(
+        os.path.join(args.out_dir, "per_frame_metrics.csv"),
+        index=False, encoding="utf-8-sig",
+    )
+
+    summary = {
+        "model": os.path.basename(args.model),
+        "channels": channels,
+        "T": int(T),
+        "H": int(H),
+        "W": int(W),
+        "ndvi_min": ndvi_min,
+        "ndvi_max": ndvi_max,
+        "metrics_all": {"r2": r2, "rmse": rmse, "mae": mae,
+                        "n_pixels": int(mask_all.sum())},
+        "per_frame_csv": "per_frame_metrics.csv",
+    }
+    with open(os.path.join(args.out_dir, "reconstruction_summary.json"), "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    print(f"\n[INFO] Done. Output: {args.out_dir}")
 
 
 if __name__ == "__main__":
