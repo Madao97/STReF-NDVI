@@ -29,12 +29,6 @@ Required inputs:
     target_mask.npy
     good_pixel.npy
     metadata.json
-
-Examples:
-    python 02_Train_STReF_NDVI.py --data-dir ./data/Dataset --out-dir ./outputs
-    python 02_Train_STReF_NDVI.py --epochs 30 --amp
-    python 02_Train_STReF_NDVI.py --single-combo
-    python 02_Train_STReF_NDVI.py --only-combos vh,rvi vv_div,vv_diff,log_ratio
 """
 
 import os
