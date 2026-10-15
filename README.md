@@ -82,7 +82,11 @@ The animation compares mean reconstructed NDVI with available Sentinel-2 observa
 ![Mean NDVI over vegetation-related land-cover classes](./vegetation_mean_ndvi.gif)
 
 These examples illustrate spatial reconstruction and temporal variation in the demonstration area. Quantitative performance is reported separately in the paper.
+---
+## Demonstration Data and Model
 
+The demonstration dataset and matching trained checkpoint are available
+on the [GitHub Releases page](https://github.com/Madao97/STReF-NDVI/releases/tag/v1.0.0).
 ---
 ## Environment & Installation
 
