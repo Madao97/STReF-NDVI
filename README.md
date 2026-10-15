@@ -44,50 +44,28 @@ All scripts are CLI-friendly with English comments and generalized paths for Git
 ---
 ## Contents
 
-- **01_Dataset_Construction.py** — Constructs STReF-NDVI datasets from
-  preprocessed Sentinel-1 features and quality-controlled Sentinel-2 NDVI
-  observations, including temporal refinement, validity masks, and dataset
-  organization.
-
-- **02_STReF-NDVI_Training.py** — Implements and trains the STReF-NDVI model,
-  integrating Tex-CNN, Time-GCN, BiLSTM, and Transformer-based temporal
-  modeling.
-
-- **03_NDVI_Reconstruction.py** — Performs NDVI prediction and continuous
-  time-series reconstruction using the trained STReF-NDVI model.
-
-- **04_Evaluation_Dataset_Construction.py** — Constructs independent evaluation
-  samples from quality-controlled optical NDVI observations.
-
-- **05_Evaluation.py** — Evaluates reconstructed NDVI using R², RMSE, and MAE
-  and generates quantitative evaluation plots.
+- **01_Dataset_Construction.py** — Builds model-ready datasets from aligned Sentinel-1 VV and VH imagery, Sentinel-2 NDVI and cloud masks, water masks, and a supplied temporal matching table. Computes five SAR features, applies percentile-based normalization, and generates supervision masks.
+- **02_STReF-NDVI_Training.py** — Implements STReF-NDVI and trains selected SAR feature combinations using a pixel-wise training and validation split.
+- **03_NDVI_Reconstruction.py** — Reconstructs NDVI sequences at eligible pixels using a trained model and exports prediction arrays, optional GeoTIFFs, and diagnostic comparisons.
+- **04_Evaluation_Dataset_Construction.py** — Samples evaluation coordinates from valid optical labels within eligible pixels using NDVI-bin reservoir sampling.
+- **05_Evaluation.py** — Calculates R², RMSE, and MAE at supplied evaluation coordinates and generates per-date and pooled density plots.
 
 ---
-
 ## Data Preparation
 
-This repository focuses on the STReF-NDVI reconstruction framework rather than
-sensor-specific preprocessing utilities. Therefore, the released workflow starts
-from preprocessed Sentinel-1 features and quality-controlled Sentinel-2 NDVI
-observations.
+The released workflow starts from preprocessed and spatially aligned Sentinel-1 VV and VH imagery, Sentinel-2 NDVI and cloud masks, water masks, and an S1-to-S2 matching table.
 
-The input data should be prepared following the protocol described in the paper.
-In brief:
+Sensor-specific preprocessing should follow the protocol described in the paper. The following steps are performed before running the dataset construction script:
 
-1. Sentinel-2 L2A surface reflectance is used to derive NDVI.
-2. Cloud-, shadow-, and other contaminated optical observations are removed
-   through quality control.
-3. Rainfall-affected SAR observations are screened using precipitation
-   information.
-4. Sentinel-1 observations are spatially aligned with the Sentinel-2 10 m
-   reference grid.
-5. Sentinel-1 and valid Sentinel-2 observations are temporally matched according
-   to the matching strategy described in the paper.
-6. Quality-controlled optical NDVI observations are temporally refined before
-   being used as supervision.
+1. Derive NDVI from Sentinel-2 L2A surface reflectance and prepare cloud and shadow masks.
+2. Prepare water masks for the optical acquisition dates.
+3. Apply the precipitation-based SAR screening described in the paper.
+4. Align all input rasters to the same 10 m reference grid, including the coordinate reference system, affine transform, and raster dimensions.
+5. Prepare the Sentinel-1-to-Sentinel-2 matching table using the temporal matching rules described in the paper.
 
-Please refer to the published paper for the complete preprocessing criteria,
-parameter settings, and experimental protocol.
+The dataset construction script uses the supplied matching table. It does not perform satellite data acquisition, sensor-specific preprocessing, or temporal refinement of optical observations. Sentinel-1 dates listed in the matching table are retained even when no Sentinel-2 supervision is available.
+
+Please refer to the published paper for the complete preprocessing criteria, parameter settings, and experimental protocol.
 ---
 
 ## Environment & Installation
