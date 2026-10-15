@@ -1,135 +1,199 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
+Build evaluation coordinates for STReF-NDVI reconstruction assessment.
 
-Build a validation set of "smoothed & clear" NDVI pixels by:
-  • Using S2_norm[..., 0] (smoothed, normalized NDVI in [0,1])
-  • Sampling only where cloud == 0 & water == 0 & good_pixel == True
-  • Balanced reservoir sampling across NDVI bins (default: 10 equal-width bins)
-  • Optionally excluding training coordinates (coords_train.npy)
+Eligibility:
+    target_mask is True.
+    good_pixel is True.
+    Observed NDVI is finite.
 
-Outputs (in --out-dir):
-  - val_coords.npy  : int32 array of shape (N, 3) with (t, row, col)
-  - val_coords.csv  : CSV with columns t,row,col
-  - Console summary of per-bin counts
+Optical label validity is inherited from target_mask, which is produced
+by the dataset construction script. This script does not recompute
+cloud, water, or NDVI-range screening.
+
+Sampling:
+    Reservoir sampling is performed separately within equal-width
+    NDVI bins. Each bin retains at most --samples-per-bin coordinates.
+    Underpopulated bins retain all eligible coordinates, so the final
+    sample counts are not necessarily equal across bins.
+
+Inputs:
+    S2.npy              (T, H, W, 3)
+    target_mask.npy     (T, H, W)
+    good_pixel.npy      (H, W)
+    metadata.json
+
+Outputs:
+    val_coords.npy      (N, 3), int32 columns: t, row, col
+    val_coords.csv
+    val_build_summary.json
+
+The existing val_* output filenames are retained for compatibility.
+
+Evaluation scope:
+    Coordinates are sampled from the supplied dataset.
+    This script does not exclude training or model-selection pixels.
+    An independent test set requires a separately defined held-out
+    population before running this script.
+
+Examples:
+    python 04_Build_Evaluation_Set.py
+    python 04_Build_Evaluation_Set.py --data-dir ./data/Dataset --out-dir ./outputs/Evaluation_set
+    python 04_Build_Evaluation_Set.py --samples-per-bin 250000 --bins 10 --seed 42
 """
 
 import os
 import csv
+import json
 import argparse
-import warnings
 import random
+
 import numpy as np
 from tqdm import tqdm
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Construct evaluation coordinates from smoothed NDVI.")
-    p.add_argument("--data-dir", required=True,
-                   help="Directory containing fullyear_S2.npy and good_pixel.npy.")
-    p.add_argument("--out-dir", default=None,
-                   help="Output directory (default: <data-dir>/Validation_set).")
-    p.add_argument("--samples-per-bin", type=int, default=250_000,
-                   help="Max samples to keep per NDVI bin (reservoir).")
-    p.add_argument("--bins", type=int, default=10,
-                   help="Number of equal-width NDVI bins in [0,1] (default: 10).")
-    p.add_argument("--seed", type=int, default=42, help="Random seed.")
-    p.add_argument("--train-coords", default=None,
-                   help="Path to coords_train.npy to exclude (default: <data-dir>/coords_train.npy if exists).")
-    return p.parse_args()
+# =============================================================
+# DEFAULT PATHS
+# Override these paths using command-line arguments.
+# =============================================================
+DATA_DIR = os.path.join("data", "Dataset")
+OUT_DIR = os.path.join("outputs", "Evaluation_set")
 
+
+# ------------------------------ CLI -------------------------------- #
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Sample evaluation coordinates from valid optical labels."
+    )
+    p.add_argument(
+        "--data-dir",
+        default=DATA_DIR,
+        help="Directory containing S2.npy, target_mask.npy, "
+             "good_pixel.npy, and metadata.json.",
+    )
+    p.add_argument("--out-dir", default=OUT_DIR)
+    p.add_argument(
+        "--samples-per-bin",
+        type=int,
+        default=250_000,
+        help="Maximum number of coordinates retained per NDVI bin.",
+    )
+    p.add_argument(
+        "--bins",
+        type=int,
+        default=10,
+        help="Number of equal-width NDVI bins defined by the metadata bounds.",
+    )
+    p.add_argument("--seed", type=int, default=42)
+    return p.parse_args()
+# ------------------------------- Main ------------------------------ #
 
 def main():
     args = parse_args()
     random.seed(args.seed)
     np.random.seed(args.seed)
+    os.makedirs(args.out_dir, exist_ok=True)
 
-    data_dir = args.data_dir
-    out_dir = args.out_dir or os.path.join(data_dir, "Validation_set")
-    os.makedirs(out_dir, exist_ok=True)
+    # ---- Load ----
+    s2_fp  = os.path.join(args.data_dir, "S2.npy")
+    tm_fp  = os.path.join(args.data_dir, "target_mask.npy")
+    gp_fp  = os.path.join(args.data_dir, "good_pixel.npy")
+    md_fp  = os.path.join(args.data_dir, "metadata.json")
+    for fp in (s2_fp, tm_fp, gp_fp, md_fp):
+        if not os.path.exists(fp):
+            raise FileNotFoundError(fp)
 
-    # ---- Load inputs ----
-    s2_path = os.path.join(data_dir, "fullyear_S2.npy")
-    gp_path = os.path.join(data_dir, "good_pixel.npy")
-    if not os.path.exists(s2_path) or not os.path.exists(gp_path):
-        raise FileNotFoundError("Required files not found: fullyear_S2.npy and/or good_pixel.npy")
+    print("[INFO] Loading arrays ...")
+    S2 = np.load(s2_fp)                                # (T,H,W,3)
+    target_mask = np.load(tm_fp).astype(bool)          # (T,H,W)
+    good_pixel  = np.load(gp_fp).astype(bool)          # (H,W)
 
-    S2_norm = np.load(s2_path)                 # (T, H, W, 3) = [ndvi_norm_smoothed, cloud, water]
-    NDVI = S2_norm[..., 0]                     # (T, H, W) normalized NDVI ∈ [0,1]
-    cloud = S2_norm[..., 1].astype(bool)       # (T, H, W)
-    water = S2_norm[..., 2].astype(bool)       # (T, H, W)
-    good_pixel = np.load(gp_path).astype(bool) # (H, W)
+    with open(md_fp, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    ndvi_min = float(meta.get("ndvi_min", -0.2))
+    ndvi_max = float(meta.get("ndvi_max", 1.0))
 
-    T, H, W = NDVI.shape
+    T, H, W = target_mask.shape
+    print(f"[INFO] T={T}, H={H}, W={W}")
+    print(f"[INFO] NDVI range: [{ndvi_min}, {ndvi_max}]")
+    print(f"[INFO] target_mask pixels: {int(target_mask.sum()):,}")
+    print(f"[INFO] good_pixel        : {int(good_pixel.sum()):,} / {H*W:,}")
 
-    # ---- Optional: exclude training coords ----
-    train_coords_path = args.train_coords or os.path.join(data_dir, "coords_train.npy")
-    train_set = set()
-    if os.path.exists(train_coords_path):
-        coords_train = np.load(train_coords_path)
-        # Expect shape (N,3) with (t,row,col) or (N,2) with (row,col)
-        if coords_train.ndim == 2 and coords_train.shape[1] in (2, 3):
-            if coords_train.shape[1] == 3:
-                train_set = {tuple(map(int, c)) for c in coords_train}
-            else:
-                # (row,col) → exclude across all times
-                rc = {tuple(map(int, c)) for c in coords_train}
-                train_set = {(t, r, c) for t in range(T) for (r, c) in rc}
-            print(f"[INFO] Excluding training pixels: {len(train_set):,}")
-        else:
-            warnings.warn("coords_train.npy has unexpected shape; ignoring exclusion.")
-    else:
-        warnings.warn("coords_train.npy not found; no training pixels excluded.")
+    # NDVI in raw scale (S2[...,0] is raw NDVI, NaN where no S2 label)
+    NDVI = S2[..., 0].astype(np.float32)
 
-    # ---- Reservoir sampling across NDVI bins ----
+    # eligible mask: has S2 label + target_mask + good_pixel + finite
+    eligible = target_mask & good_pixel[None, :, :] & np.isfinite(NDVI)
+    print(f"[INFO] eligible pixels   : {int(eligible.sum()):,}")
+    if eligible.sum() == 0:
+        raise RuntimeError("No eligible pixels.")
+
+    # ---- Reservoir sampling per NDVI bin ----
     nb = max(1, int(args.bins))
-    bin_edges = np.linspace(0.0, 1.0, nb + 1)
-    bins = {i: [] for i in range(nb)}
-    counts = {i: 0 for i in range(nb)}
+    bin_edges = np.linspace(ndvi_min, ndvi_max, nb + 1)
 
+    bins   = {i: [] for i in range(nb)}
+    counts = {i: 0  for i in range(nb)}
+
+    print("[INFO] Sampling (bin-balanced reservoir) ...")
     for t in tqdm(range(T), desc="Scanning frames"):
-        mask = (~cloud[t]) & (~water[t]) & good_pixel
-        rows, cols = np.where(mask)
-        if rows.size == 0:
+        m = eligible[t]
+        if not m.any():
             continue
+        rr, cc = np.where(m)
+        vals = NDVI[t, rr, cc]
+        seg = np.clip(np.digitize(vals, bin_edges) - 1, 0, nb - 1)
 
-        vals = NDVI[t, rows, cols]
-        seg = np.digitize(vals, bin_edges) - 1
-        seg = np.clip(seg, 0, nb - 1)  # guard for value==1.0 edge
-
+        # vectorized replacement is non-trivial; keep per-sample loop but only
+        # for pixels that need it (this is fast enough for ~1M samples)
         for k, b in enumerate(seg):
-            coord = (t, int(rows[k]), int(cols[k]))
-            if train_set and coord in train_set:
-                continue
-            counts[int(b)] += 1
-            if len(bins[int(b)]) < args.samples_per_bin:
-                bins[int(b)].append(coord)
+            b = int(b)
+            coord = (t, int(rr[k]), int(cc[k]))
+            counts[b] += 1
+            if len(bins[b]) < args.samples_per_bin:
+                bins[b].append(coord)
             else:
-                # Classic reservoir replacement
-                j = random.randint(0, counts[int(b)] - 1)
+                j = random.randint(0, counts[b] - 1)
                 if j < args.samples_per_bin:
-                    bins[int(b)][j] = coord
+                    bins[b][j] = coord
 
-    # ---- Merge, shuffle, and save ----
+    # ---- Merge / shuffle / save ----
     val_coords = []
     for b in range(nb):
         val_coords.extend(bins[b])
     random.shuffle(val_coords)
 
-    np.save(os.path.join(out_dir, "val_coords.npy"),
-            np.array(val_coords, dtype=np.int32))
+    arr = np.array(val_coords, dtype=np.int32)          # (N,3)
+    np.save(os.path.join(args.out_dir, "val_coords.npy"), arr)
 
-    with open(os.path.join(out_dir, "val_coords.csv"), "w", newline="") as f:
+    with open(os.path.join(args.out_dir, "val_coords.csv"),
+              "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["t", "row", "col"])
         writer.writerows(val_coords)
 
-    # ---- Report ----
-    per_bin = {f"{i}": len(bins[i]) for i in range(nb)}
-    print("\n[INFO] Validation set construction done.")
-    print("[INFO] Per-bin sample counts:", per_bin)
-    print(f"[INFO] Total samples: {len(val_coords):,}")
-    print(f"[INFO] Files saved to: {out_dir}")
+    per_bin = {str(i): len(bins[i]) for i in range(nb)}
+
+    summary = {
+        "data_dir": args.data_dir,
+        "out_dir":  args.out_dir,
+        "T": int(T), "H": int(H), "W": int(W),
+        "ndvi_min": ndvi_min,
+        "ndvi_max": ndvi_max,
+        "n_bins": int(nb),
+        "samples_per_bin": int(args.samples_per_bin),
+        "per_bin_counts": per_bin,
+        "total_samples": int(len(val_coords)),
+        "eligible_pixels": int(eligible.sum()),
+    }
+    with open(os.path.join(args.out_dir, "val_build_summary.json"),
+              "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    print("\n[INFO] Per-bin counts:", per_bin)
+    print(f"[INFO] Total validation samples: {len(val_coords):,}")
+    print(f"[INFO] Saved to: {args.out_dir}")
 
 
 if __name__ == "__main__":
