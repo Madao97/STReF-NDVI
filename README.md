@@ -67,7 +67,22 @@ The dataset construction script uses the supplied matching table. It does not pe
 
 Please refer to the published paper for the complete preprocessing criteria, parameter settings, and experimental protocol.
 ---
+## Example Results
 
+### Spatial reconstruction
+
+The animation shows a fixed land-cover map, matched Sentinel-2 true-color imagery, cloud-masked observed NDVI, and reconstructed NDVI over a demonstration area. The observed and reconstructed NDVI panels use the same color scale. Actual acquisition dates are displayed for the matched optical imagery.
+
+![Spatial NDVI reconstruction](assets/spatial_reconstruction.gif)
+
+### Vegetation-related NDVI time series
+
+The animation shows mean reconstructed NDVI over eligible pixels in vegetation-related land-cover classes, including other vegetation, cropland, and herbaceous wetland in this demonstration area. Sentinel-2 points represent the mean of valid observed pixels at each accepted date, whose spatial coverage may vary over time.
+
+![Vegetation-related mean NDVI](assets/vegetation_mean_ndvi.gif)
+
+These animations illustrate reconstruction behavior in a demonstration area. They do not replace the quantitative evaluation reported in the paper.
+---
 ## Environment & Installation
 
 > **Recommended:** Use Conda, install GDAL/GEOS/PROJ via `conda-forge`, then pip-install the rest.  
